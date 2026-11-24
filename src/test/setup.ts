@@ -9,6 +9,13 @@ import { server } from "@/mocks/node";
 // jsdom não implementa estas APIs de layout (usadas pelo input-otp e pelo Radix).
 document.elementFromPoint ??= () => null;
 Element.prototype.scrollIntoView ??= () => {};
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.releasePointerCapture ??= () => {};
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
 
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
 beforeEach(() => {

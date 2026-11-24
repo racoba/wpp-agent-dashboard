@@ -194,3 +194,93 @@ export interface AdminClinicListItem {
 export interface ImpersonateResponse {
   accessToken: string;
 }
+
+// ---------------------------------------------------------------- catálogo (Fase 2)
+
+export type ClinicUpdate = Partial<Pick<Clinic, "name" | "timezone" | "phone" | "email" | "address">>;
+
+/** SUPOSIÇÃO: formato do profissional. */
+export interface Professional {
+  id: string;
+  name: string;
+  specialty: string | null;
+  active: boolean;
+  serviceIds: string[];
+  /** Agenda vinculada (configurada na tela de Conexões). */
+  calendar: { connectionId: string; calendarId: string; calendarName: string } | null;
+}
+
+export type ProfessionalInput = Pick<Professional, "name" | "specialty" | "active">;
+
+/** SUPOSIÇÃO: formato do serviço. Preço em centavos. */
+export interface Service {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  priceCents: number | null;
+  description: string | null;
+  active: boolean;
+}
+
+export type ServiceInput = Omit<Service, "id">;
+
+/** 0 = domingo … 6 = sábado. Horários "HH:mm" no fuso da clínica. */
+export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+export interface AvailabilityRule {
+  weekday: Weekday;
+  start: string;
+  end: string;
+}
+
+/** SUPOSIÇÃO: GET/PUT /professionals/:id/availability usam { rules }. */
+export interface Availability {
+  rules: AvailabilityRule[];
+}
+
+/** SUPOSIÇÃO: exceção de dia inteiro, por profissional ou para a clínica toda (professionalId null). */
+export interface AvailabilityException {
+  id: string;
+  professionalId: string | null;
+  startsOn: IsoDate;
+  endsOn: IsoDate;
+  reason: string;
+}
+
+export type AvailabilityExceptionInput = Omit<AvailabilityException, "id">;
+
+// ---------------------------------------------------------------- agente (Fase 2)
+
+export type AgentTone = "friendly" | "neutral" | "formal";
+
+/** SUPOSIÇÃO: formato de /agent-settings. */
+export interface AgentSettings {
+  tone: AgentTone;
+  welcomeMessage: string;
+  urgencyMessage: string;
+  extraRules: string;
+  /** Janela de atuação; null = 24 h todos os dias. */
+  activeHours: { start: string; end: string; weekdays: Weekday[] } | null;
+  /** Antecedência mínima para agendar, em minutos. */
+  minAdvanceMinutes: number;
+  consentMessage: string;
+}
+
+export interface PreviewMessage {
+  role: "patient" | "agent";
+  text: string;
+}
+
+export type PreviewActionType = "suggest_slots" | "would_book" | "would_cancel" | "would_reschedule" | "handoff";
+
+/** SUPOSIÇÃO: prévia sem estado no servidor (o cliente manda o histórico). */
+export interface AgentPreviewRequest {
+  messages: PreviewMessage[];
+  /** Testar com configurações ainda não salvas. */
+  settings?: AgentSettings;
+}
+
+export interface AgentPreviewResponse {
+  reply: string;
+  actions: Array<{ type: PreviewActionType; description: string }>;
+}

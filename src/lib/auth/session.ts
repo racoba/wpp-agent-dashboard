@@ -55,14 +55,67 @@ function reasonFromError(error: ApiError): SessionEndReason {
   return "expired";
 }
 
+/**
+ * Marca (só o horário, nada sensível) de quando alguma aba renovou por último.
+ * O lock pode ser concedido antes de chegar a mensagem do BroadcastChannel com
+ * o token novo; com esta marca a aba sabe que deve esperar a mensagem em vez
+ * de renovar de novo.
+ */
+const LAST_REFRESH_KEY = "atende:auth:last-refresh";
+const PEER_TOKEN_WAIT_MS = 2_000;
+
+function markRefreshed() {
+  try {
+    localStorage.setItem(LAST_REFRESH_KEY, String(Date.now()));
+  } catch {
+    // storage indisponível: segue sem a otimização
+  }
+}
+
+function peerRefreshedSince(since: number): boolean {
+  try {
+    return Number(localStorage.getItem(LAST_REFRESH_KEY) ?? 0) >= since;
+  } catch {
+    return false;
+  }
+}
+
+function waitForPeerToken(staleToken: string | null): Promise<string | null> {
+  return new Promise((resolve) => {
+    const check = () => {
+      const current = tokenStore.getPrimary();
+      if (isFresh(current) && current.accessToken !== staleToken) {
+        cleanup();
+        resolve(current.accessToken);
+      }
+    };
+    const unsubscribe = tokenStore.subscribe(check);
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(null);
+    }, PEER_TOKEN_WAIT_MS);
+    function cleanup() {
+      clearTimeout(timer);
+      unsubscribe();
+    }
+    check();
+  });
+}
+
 async function performRefresh(staleToken: string | null): Promise<string> {
+  const requestedAt = Date.now();
   return withRefreshLock(async () => {
     // Outra aba pode ter renovado enquanto esperávamos o lock.
     const current = tokenStore.getPrimary();
     if (isFresh(current) && current.accessToken !== staleToken) return current.accessToken;
+    if (staleToken !== null && peerRefreshedSince(requestedAt)) {
+      const fromPeer = await waitForPeerToken(staleToken);
+      if (fromPeer) return fromPeer;
+    }
 
     try {
       const res = await callRefreshEndpoint();
+      markRefreshed();
       storePrimary(res.accessToken, res.expiresIn, true);
       return res.accessToken;
     } catch (error) {

@@ -121,6 +121,7 @@ test("master entra como clínica em modo leitura e sai", async ({ page }) => {
   await login(page, "master@atende.app", { mfa: true });
   await expect(page).toHaveURL(/\/admin$/);
   await page.getByRole("link", { name: "Clínicas" }).click();
+  await page.getByLabel("Buscar clínica por nome").fill("Sorriso Pleno");
   await page.getByRole("button", { name: /Entrar como a clínica: Clínica Sorriso Pleno/ }).click();
   await expect(page).toHaveURL(/\/app$/);
   const banner = page.getByRole("region", { name: "Modo de visualização como clínica" });

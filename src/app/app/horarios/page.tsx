@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
-import { ComingSoon } from "@/components/layout/page-header";
+import { Suspense } from "react";
+import { PageSkeleton } from "@/components/feedback/states";
+import { SchedulePage } from "./schedule-page";
 
 export const metadata: Metadata = { title: "Horários" };
 
 export default function Page() {
-  return <ComingSoon title="Horários" phase={2} />;
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <SchedulePage />
+    </Suspense>
+  );
 }

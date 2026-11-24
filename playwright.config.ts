@@ -10,7 +10,7 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 2 : 4,
+  workers: 2,
   expect: { timeout: 10_000 },
   reporter: [["list"]],
   use: {

@@ -1,4 +1,13 @@
-import type { ClinicStatus, Connection, Readiness, Role } from "@/lib/api/types";
+import type {
+  AgentSettings,
+  AvailabilityException,
+  AvailabilityRule,
+  ClinicStatus,
+  Connection,
+  Professional,
+  Role,
+  Service,
+} from "@/lib/api/types";
 
 /**
  * "Banco" do backend simulado.
@@ -73,7 +82,13 @@ export interface MockState {
   clinics: MockClinic[];
   sessions: MockSession[];
   connections: Array<Connection & { clinicId: string }>;
-  readiness: Record<string, Omit<Readiness, "completed" | "total">>;
+  professionals: Array<Professional & { clinicId: string }>;
+  services: Array<Service & { clinicId: string }>;
+  /** Regras semanais por profissional. */
+  availability: Record<string, AvailabilityRule[]>;
+  exceptions: Array<AvailabilityException & { clinicId: string }>;
+  agentSettings: Record<string, AgentSettings>;
+  agentActive: Record<string, boolean>;
   cookieJar: { refreshToken: string | null };
   mfaTokens: Array<{ token: string; userId: string; expiresAt: number; used: boolean }>;
   resetTokens: Array<{ token: string; userId: string; expiresAt: number }>;
@@ -84,7 +99,7 @@ export interface MockState {
 }
 
 const STORAGE_KEY = "__wpp_mock_backend__";
-const VERSION = 1;
+const VERSION = 2;
 
 export const MOCK_PASSWORD = "Senha@123";
 export const MOCK_TOTP_CODE = "123456";
@@ -94,6 +109,7 @@ export const MOCK_ACCOUNTS = [
   { email: "recepcao@sorrisopleno.com.br", label: "Equipe da clínica" },
   { email: "gestora@vidaesaude.com.br", label: "Admin da clínica com MFA" },
   { email: "contato@auroraderm.com.br", label: "Clínica suspensa" },
+  { email: "nova@clinicaesperanca.com.br", label: "Clínica nova (onboarding vazio)" },
   { email: "master@atende.app", label: "Master com MFA" },
   { email: "novo.master@atende.app", label: "Master sem MFA (força configuração)" },
 ] as const;
@@ -158,6 +174,20 @@ function seed(): MockState {
       messagesThisMonth: 0,
       connectionHealth: "error",
     },
+    {
+      id: "cli_nova",
+      name: "Clínica Nova Esperança",
+      timezone: "America/Sao_Paulo",
+      status: "trial",
+      plan: "Teste",
+      phone: null,
+      email: null,
+      address: null,
+      createdAt: daysAgo(1),
+      monthlyMessageCap: 1000,
+      messagesThisMonth: 0,
+      connectionHealth: "attention",
+    },
     ...EXTRA_CLINICS.map((name, i): MockClinic => {
       const status: ClinicStatus = i % 9 === 4 ? "suspended" : i % 5 === 2 ? "trial" : "active";
       const cap = [2000, 5000, 10000][i % 3]!;
@@ -183,6 +213,7 @@ function seed(): MockState {
     { id: "usr_bruna", name: "Bruna Costa", email: "recepcao@sorrisopleno.com.br", role: "clinic_staff", clinicId: "cli_sorriso", mfaEnabled: false },
     { id: "usr_carla", name: "Carla Mendes", email: "gestora@vidaesaude.com.br", role: "clinic_admin", clinicId: "cli_vida", mfaEnabled: true },
     { id: "usr_diego", name: "Diego Lima", email: "contato@auroraderm.com.br", role: "clinic_admin", clinicId: "cli_aurora", mfaEnabled: false },
+    { id: "usr_nova", name: "Helena Duarte", email: "nova@clinicaesperanca.com.br", role: "clinic_admin", clinicId: "cli_nova", mfaEnabled: false },
     { id: "usr_master", name: "Marina Alves", email: "master@atende.app", role: "master_admin", clinicId: null, mfaEnabled: true },
     { id: "usr_novo", name: "Rafael Souza", email: "novo.master@atende.app", role: "master_admin", clinicId: null, mfaEnabled: false },
   ].map((u) => ({
@@ -258,11 +289,7 @@ function seed(): MockState {
     clinics,
     sessions,
     connections,
-    readiness: {
-      cli_sorriso: { whatsapp: true, hasProfessionalWithCalendar: true, hasAvailability: true, agentActive: true },
-      cli_vida: { whatsapp: true, hasProfessionalWithCalendar: false, hasAvailability: true, agentActive: false },
-      cli_aurora: { whatsapp: false, hasProfessionalWithCalendar: false, hasAvailability: false, agentActive: false },
-    },
+    ...seedCatalog(),
     cookieJar: { refreshToken: null },
     mfaTokens: [],
     resetTokens: [],
@@ -275,6 +302,66 @@ function seed(): MockState {
     },
     auditLog: [],
     refreshCalls: 0,
+  };
+}
+
+const WEEKDAYS_8_18: AvailabilityRule[] = [1, 2, 3, 4, 5].flatMap((weekday) => [
+  { weekday: weekday as AvailabilityRule["weekday"], start: "08:00", end: "12:00" },
+  { weekday: weekday as AvailabilityRule["weekday"], start: "13:30", end: "18:00" },
+]);
+
+export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
+  tone: "friendly",
+  welcomeMessage: "Olá! Sou a assistente virtual da clínica. Posso agendar, remarcar ou cancelar sua consulta. Como posso ajudar?",
+  urgencyMessage:
+    "Se for uma emergência, ligue 192 (SAMU) ou procure o pronto-socorro mais próximo. Vou avisar nossa equipe agora.",
+  extraRules: "",
+  activeHours: null,
+  minAdvanceMinutes: 120,
+  consentMessage:
+    "Para seguir com o atendimento, usaremos seu nome e telefone apenas para agendar suas consultas, conforme a LGPD. Responda SIM para continuar.",
+};
+
+function seedCatalog(): Pick<
+  MockState,
+  "professionals" | "services" | "availability" | "exceptions" | "agentSettings" | "agentActive"
+> {
+  const services: MockState["services"] = [
+    { clinicId: "cli_sorriso", id: "svc_avaliacao", name: "Avaliação odontológica", durationMinutes: 30, priceCents: 15000, description: "Primeira consulta com exame clínico.", active: true },
+    { clinicId: "cli_sorriso", id: "svc_limpeza", name: "Limpeza (profilaxia)", durationMinutes: 45, priceCents: 22000, description: null, active: true },
+    { clinicId: "cli_sorriso", id: "svc_clareamento", name: "Clareamento – sessão", durationMinutes: 60, priceCents: 60000, description: null, active: true },
+    { clinicId: "cli_sorriso", id: "svc_canal", name: "Tratamento de canal – avaliação", durationMinutes: 40, priceCents: null, description: "Valor definido após a avaliação.", active: false },
+    { clinicId: "cli_vida", id: "svc_clinico", name: "Consulta clínica geral", durationMinutes: 30, priceCents: 25000, description: null, active: true },
+  ];
+  const professionals: MockState["professionals"] = [
+    { clinicId: "cli_sorriso", id: "pro_marina", name: "Dra. Marina Costa", specialty: "Clínica geral", active: true, serviceIds: ["svc_avaliacao", "svc_limpeza"], calendar: { connectionId: "con_gcal_sorriso", calendarId: "marina@sorrisopleno.com.br", calendarName: "Dra. Marina" } },
+    { clinicId: "cli_sorriso", id: "pro_ricardo", name: "Dr. Ricardo Nunes", specialty: "Estética dental", active: true, serviceIds: ["svc_avaliacao", "svc_clareamento"], calendar: { connectionId: "con_gcal_sorriso", calendarId: "ricardo@sorrisopleno.com.br", calendarName: "Dr. Ricardo" } },
+    { clinicId: "cli_sorriso", id: "pro_julia", name: "Dra. Júlia Prado", specialty: "Endodontia", active: false, serviceIds: ["svc_canal"], calendar: null },
+    { clinicId: "cli_vida", id: "pro_paulo", name: "Dr. Paulo Tavares", specialty: "Clínico geral", active: true, serviceIds: ["svc_clinico"], calendar: null },
+  ];
+  const year = new Date().getFullYear();
+  return {
+    services,
+    professionals,
+    availability: {
+      pro_marina: WEEKDAYS_8_18,
+      pro_ricardo: [
+        { weekday: 2, start: "09:00", end: "17:00" },
+        { weekday: 4, start: "09:00", end: "17:00" },
+        { weekday: 6, start: "08:00", end: "12:00" },
+      ],
+      pro_julia: [],
+      pro_paulo: WEEKDAYS_8_18,
+    },
+    exceptions: [
+      { clinicId: "cli_sorriso", id: "exc_natal", professionalId: null, startsOn: `${year}-12-24`, endsOn: `${year}-12-25`, reason: "Natal" },
+      { clinicId: "cli_sorriso", id: "exc_ferias", professionalId: "pro_ricardo", startsOn: `${year + 1}-01-06`, endsOn: `${year + 1}-01-20`, reason: "Férias" },
+    ],
+    agentSettings: {
+      cli_sorriso: { ...DEFAULT_AGENT_SETTINGS, extraRules: "Não informar valores de tratamentos de canal pelo WhatsApp." },
+      cli_vida: DEFAULT_AGENT_SETTINGS,
+    },
+    agentActive: { cli_sorriso: true },
   };
 }
 

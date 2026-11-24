@@ -53,14 +53,19 @@ function isActive(pathname: string, item: NavItem) {
   return item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
 }
 
-function ReadinessBadge() {
+/** "Primeiros passos" só aparece enquanto a prontidão não estiver completa (e na própria página). */
+function ReadinessGate({ active, children }: { active: boolean; children: (badge: React.ReactNode) => React.ReactNode }) {
   const { data } = useQuery({ queryKey: ["clinic", "readiness"], queryFn: clinicApi.readiness });
-  if (!data || data.completed >= data.total) return null;
-  return (
-    <SidebarMenuBadge aria-label={`${data.completed} de ${data.total} concluídos`}>
-      {data.completed}/{data.total}
-    </SidebarMenuBadge>
-  );
+  const complete = !!data && data.completed >= data.total;
+  if (complete && !active) return null;
+  const badge =
+    data && !complete ? (
+      <SidebarMenuBadge>
+        <span className="size-2 rounded-full bg-amber-500" aria-hidden />
+        <span className="sr-only">Configuração pendente</span>
+      </SidebarMenuBadge>
+    ) : null;
+  return <>{children(badge)}</>;
 }
 
 function NavLinks({ groups }: { groups: NavGroup[] }) {
@@ -80,7 +85,7 @@ function NavLinks({ groups }: { groups: NavGroup[] }) {
               <SidebarMenu>
                 {items.map((item) => {
                   const active = isActive(pathname, item);
-                  return (
+                  const render = (badge: React.ReactNode) => (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
                         <Link
@@ -92,8 +97,15 @@ function NavLinks({ groups }: { groups: NavGroup[] }) {
                           <span>{item.label}</span>
                         </Link>
                       </SidebarMenuButton>
-                      {item.badge === "readiness" ? <ReadinessBadge /> : null}
+                      {badge}
                     </SidebarMenuItem>
+                  );
+                  return item.badge === "readiness" ? (
+                    <ReadinessGate key={item.href} active={active}>
+                      {render}
+                    </ReadinessGate>
+                  ) : (
+                    render(null)
                   );
                 })}
               </SidebarMenu>

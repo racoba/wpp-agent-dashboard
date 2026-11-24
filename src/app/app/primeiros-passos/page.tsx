@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
-import { ComingSoon } from "@/components/layout/page-header";
+import { Suspense } from "react";
+import { PageSkeleton } from "@/components/feedback/states";
+import { OnboardingWizard } from "./onboarding-wizard";
 
 export const metadata: Metadata = { title: "Primeiros passos" };
 
 export default function Page() {
-  return <ComingSoon title="Primeiros passos" phase={2} />;
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <OnboardingWizard />
+    </Suspense>
+  );
 }

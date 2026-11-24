@@ -31,3 +31,22 @@ Pontos em que o contrato não define o comportamento e o frontend precisou assum
 | C3 | Paginação por cursor | `{ items: T[], nextCursor: string \| null }`. A ordenação das tabelas é feita no cliente, só na página carregada, porque o contrato não tem parâmetros de ordenação. **Pedido ao backend:** `sort`/`order` nas listagens. |
 | C4 | `GET /admin/clinics` | Aceita `q`, `status` e `cursor`. Cada item traz `messagesThisMonth`, `monthlyMessageCap` e `connectionHealth` (`ok`/`attention`/`error`) para as colunas de uso e saúde. |
 | C5 | `Connection.status` | `not_connected \| connecting \| active \| attention \| error`, que correspondem aos cinco selos pedidos. |
+
+## Fase 2: catálogo, horários e agente
+
+| # | Ponto | Suposição |
+|---|---|---|
+| P1 | `Professional` | `{ id, name, specialty, active, serviceIds, calendar: { connectionId, calendarId, calendarName } \| null }`. O vínculo de serviços vem embutido e é alterado por `PUT /professionals/:id/services { serviceIds }`. A edição usa `PATCH /professionals/:id`. |
+| P2 | `Service` | `{ id, name, durationMinutes, priceCents, description, active }`. O preço vai em centavos (inteiro), para evitar erro de arredondamento. |
+| P3 | Disponibilidade | `GET` e `PUT /professionals/:id/availability` usam `{ rules: [{ weekday: 0-6, start: "HH:mm", end: "HH:mm" }] }`, no fuso da clínica, com domingo = 0. Faixas sobrepostas ou com fim antes do início: `400 VALIDATION_ERROR`. |
+| P4 | Exceções | `{ id, professionalId \| null, startsOn, endsOn, reason }`, com datas `YYYY-MM-DD` e dia inteiro. `professionalId: null` vale para a clínica toda. A edição usa `PATCH /availability-exceptions/:id`. **Pergunta ao backend:** são necessárias exceções de meio período? |
+| P5 | Erros de validação | `400 VALIDATION_ERROR` com `details.fields = { campo: mensagem }`. O front mostra cada mensagem no campo correspondente (`src/lib/api/form-errors.ts`). |
+| P6 | `/agent-settings` | `{ tone: friendly\|neutral\|formal, welcomeMessage, urgencyMessage, consentMessage, extraRules, activeHours: { start, end, weekdays } \| null, minAdvanceMinutes }`. `activeHours: null` significa atendimento 24 h. |
+| P7 | `/agent/preview` | É **sem estado**: o cliente envia `{ messages: [{ role: patient\|agent, text }], settings? }` e recebe `{ reply, actions: [{ type, description }] }`. O campo `settings` opcional permite testar alterações ainda não salvas. A prévia é liberada também para `clinic_staff` e na impersonação, porque não grava nada. |
+| P8 | `/agent/activate` sem pré-requisitos | `409 AGENT_NOT_READY` com `details.missing: ["whatsapp", "hasProfessionalWithCalendar", "hasAvailability"]`. |
+| P9 | Onboarding × readiness | O onboarding tem 7 etapas, mas `/readiness` só cobre 4 itens. Dados da clínica e profissionais/serviços são calculados pelo front a partir dos dados. "Agente testado" fica num booleano no `localStorage` (`atende:agent-tested:<clinicId>`). **Pedido ao backend:** incluir `clinicProfile`, `catalog` e `agentTested` no `/readiness`. |
+| P10 | Permissões de escrita | `clinic_staff`: catálogo e horários (`catalog:write`). `clinic_admin`: também `clinic:write` (dados da clínica) e `agent:write` (agente e ativação). |
+
+## Outros ajustes do frontend
+
+- **Refresh entre abas:** além do Web Locks, a aba que renova grava no `localStorage` só o **horário** do último refresh (`atende:auth:last-refresh`, sem nenhum token). Assim, uma aba que recebe o lock antes da mensagem do BroadcastChannel espera o token novo em vez de renovar de novo. Esse caso foi encontrado pelo teste E2E de duas abas.
